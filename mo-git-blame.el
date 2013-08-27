@@ -140,6 +140,44 @@ option if this variable is non-nil."
                  (const :tag "If available" if-available)
                  (const :tag "Never" never)))
 
+(defcustom mo-git-blame-use-colors t
+  "Use colors to indicate commit age."
+  :type 'boolean
+  :group 'mo-git-blame)
+
+
+;; The 2 functions and variable were taken from git-blame by
+;; David Kågedal, taken from
+;; https://github.com/jaalto/emacs-epackage--git-blame-mode
+
+(defmacro mo-git-blame-random-pop (l)
+  "Select a random element from L and returns it. Also remove
+selected element from l."
+  ;; only works on lists with unique elements
+  `(let ((e (elt ,l (random (length ,l)))))
+     (setq ,l (remove e ,l))
+     e))
+
+(defun mo-git-blame-color-scale (&rest elements)
+  "Given a list, returns a list of triples formed with each
+elements of the list.
+
+a b => bbb bba bab baa abb aba aaa aab"
+  (let (result)
+    (dolist (a elements)
+      (dolist (b elements)
+        (dolist (c elements)
+          (setq result (cons (format "#%s%s%s" a b c) result)))))
+    result))
+
+(defvar mo-git-blame-light-colors
+  (git-blame-color-scale "c4" "d4" "cc" "dc" "f4" "e4" "fc" "ec")
+  "*List of colors (format #RGB) to use in a light environment.
+
+To check out the list, evaluate (list-colors-display git-blame-light-colors).")
+
+(defvar mo-git-blame-colors '())
+
 ;; This function was taken from magit (called 'magit-trim-line' there).
 (defun mo-git-blame-trim-line (str)
   (cond ((string= str "")
@@ -206,7 +244,8 @@ git is already/still running."
         (insert msg "\n")
         (message msg)))
     (setq mo-git-blame-process nil)
-    (message "Running 'git blame'... done")))
+    (message "Running 'git blame'... done")
+    (mo-git-blame-colorize)))
 
 (defun mo-git-blame-commit-info-to-time (entry)
   (let* ((tz (plist-get entry :author-tz))
@@ -750,6 +789,64 @@ blamed."
     (mo-git-blame-goto-line-markless line))
   (with-selected-window (plist-get mo-git-blame-vars :content-window)
     (mo-git-blame-goto-line-markless line)))
+
+
+;; poor mans line highlight. Go through each line in the buffer, make
+;; a dictionary of the hash, and assign it to a color from the
+;; specified git colors
+(defun create-buffer-hash-colors (h)
+  (save-excursion
+    (goto-char (point-min))
+    (while (= 0 (forward-line))
+      (let
+          ((hash (car (split-string 
+                       (buffer-substring-no-properties (point-at-bol) (point-at-eol))))))
+        (if (gethash hash h)
+            ()
+          (puthash hash (mo-git-blame-random-pop mo-git-blame-colors)
+                   h))))))
+
+  ;; (dolist
+  ;;     (line (split-string
+  ;;            (buffer-substring-no-properties (point-min) (point-max))
+  ;;            "\n"))
+  ;;   (let
+  ;;       ((hash (car (split-string line))))
+  ;;     (if (gethash hash h)
+  ;;         ()
+  ;;       (puthash hash (mo-git-blame-random-pop mo-git-blame-colors) h)))))
+
+;; applies the buffer hash colors passed in to every line in the buffer
+(defun apply-buffer-hash-colors (h)
+  (save-excursion
+    (goto-char (point-min))
+    (while (= 0 (forward-line))
+      (let
+          ((color (gethash (car (split-string 
+                            (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
+                      h)))
+        ;(if (> (length color) 0)
+            (overlay-put
+             (make-overlay (point-at-bol) (point-at-eol))
+             'face
+             (list :background color))
+          ;()
+          ;)
+            ))))
+
+(defun mo-git-blame-colorize ()
+  (let
+      ((table (make-hash-table :test 'equal))
+       (window (plist-get mo-git-blame-vars :blame-window)))
+    (with-selected-window window
+      (with-current-buffer (window-buffer window)
+        (make-local-variable 'mo-git-blame-colors)
+        (setq mo-git-blame-colors mo-git-blame-light-colors)
+        (create-buffer-hash-colors table)
+        (apply-buffer-hash-colors table)
+        (clrhash table)
+        (message "colorize done")))))
+
 
 ;;;###autoload
 (defun mo-git-blame-current ()
