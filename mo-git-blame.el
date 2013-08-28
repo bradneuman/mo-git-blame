@@ -868,7 +868,7 @@ blamed."
         (message "colorize done")))))
 
 ;; TEMP: move
-(defun mo-git-light-colors (x delta)
+(defun mo-git-colors (x delta)
   (if (> x 1.0) ()
     (cons
      (format "#%02x%02x%02x"
@@ -878,11 +878,22 @@ blamed."
              )
      (mo-git-light-colors (+ x delta) delta))))
 
+(defun mo-git-light-colors (x delta)
+  (if (> x 1.0) ()
+    (cons
+     (format "#%02x%02x%02x"
+             (* 255 (if (< x 0.5) 0.5 x))
+             (* 255 (if (< x 0.5) (+ 0.5 x) (- 1.0 (- x 0.5))))
+             (* 255 (if (> x 0.5) 0.5 (- 1.0 (* x 1.0))))
+             )
+     (mo-git-light-colors (+ x delta) delta))))
+
 (defun mo-git-blame-test-colors ()
   "testing function to show all of the colors"
   (switch-to-buffer "tmp-colors")
   (let
-      ((colors (mo-git-light-colors 0.0 0.01))
+      ((colors (mo-git-light-colors 0.0 0.1 ;7.8125e-3
+                                    ))
        (table (make-hash-table :test 'equal)))
     (dolist (c colors)
       (prin1 c (current-buffer))
