@@ -42,6 +42,9 @@
   "Buffer-local plist that stores various variables needed for
 interactive use, e.g. the file name, current revision etc.")
 
+(defvar mo-git-blame-rev-ts nil
+  "Buffer-local alist that maps revision to timestamp")
+
 (defvar mo-git-blame--wincfg nil)
 
 (defvar mo-git-blame-mode-map
@@ -145,6 +148,15 @@ option if this variable is non-nil."
   :type 'boolean
   :group 'mo-git-blame)
 
+(defcustom mo-git-blame-time-format "%Y-%m-%d %T"
+  "Time format (used in format-time-string) to display"
+  :type 'string
+  :group 'mo-git-blame)
+
+(defcustom mo-git-blame-time-UTC t
+  "Convert all times to univeral timezone"
+  :type 'boolean
+  :group 'mo-git-blame)
 
 ;; The 2 functions and variable were taken from git-blame by
 ;; David Kågedal, taken from
@@ -265,7 +277,8 @@ git is already/still running."
         (message msg)))
     (setq mo-git-blame-process nil)
     (message "Running 'git blame'... done")
-    (mo-git-blame-colorize)))
+    (mo-git-blame-colorize)
+    ))
 
 (defun mo-git-blame-commit-info-to-time (entry)
   (let* ((tz (plist-get entry :author-tz))
@@ -280,17 +293,23 @@ git is already/still running."
 (defun mo-git-blame-process-filter-process-entry (entry)
   (with-current-buffer (plist-get mo-git-blame-vars :blame-buffer)
     (save-excursion
-      (let ((inhibit-read-only t)
-            (info (format "%s (%s %s %s) %s"
-                          (substring (symbol-name (plist-get entry :hash)) 0 8)
-                          (plist-get entry :author)
-                          (format-time-string "%Y-%m-%d %T" (mo-git-blame-commit-info-to-time entry) t)
-                          (plist-get entry :author-tz)
-                          (plist-get entry :filename)))
-            i)
+      (let* ((inhibit-read-only t)
+	     (ts (plist-get entry :author-time))
+	     (shorthash (substring (symbol-name (plist-get entry :hash)) 0 8))
+	     (info (format "%s (%s %s %s) %s"
+			   shorthash
+			   (plist-get entry :author)
+			   (format-time-string mo-git-blame-time-format (mo-git-blame-commit-info-to-time entry) mo-git-blame-time-UTC)
+			   (plist-get entry :author-tz)
+			   (plist-get entry :filename)))
+	     i)
+	(unless (assq (intern (concat ":" shorthash)) mo-git-blame-rev-ts)
+	  (add-to-list 'mo-git-blame-rev-ts (cons shorthash ts)))
         (mo-git-blame-goto-line-markless (plist-get entry :result-line))
         (dotimes (i (plist-get entry :num-lines))
           (insert info)
+	  (put-text-property (point-at-bol) (point-at-eol) 'mo-git-blame-rev-ts
+			     (plist-get entry :author-time))
           (goto-char (line-beginning-position 2)))))))
 
 (defun mo-git-blame-set-entry (key value)
@@ -854,7 +873,36 @@ blamed."
           ;)
             ))))
 
+(defun apply-buffer-alist-colors (colors)
+  (save-excursion
+    (goto-char (point-min))
+    (while (= 0 (forward-line))
+      (let
+          ((color (cdr (assq (intern (concat ":" (car (split-string 
+						       (buffer-substring-no-properties (point-at-bol) (point-at-eol)))))) colors))))
+        ;(if (> (length color) 0)
+	(message color)
+            (overlay-put
+             (make-overlay (point-at-bol) (point-at-eol))
+             'face
+             (list :background color))
+          ;()
+          ;)
+            ))))
+
 (defun mo-git-blame-colorize ()
+  (let*
+      ((window (plist-get mo-git-blame-vars :blame-window))
+       (sorted-hashes (sort mo-git-blame-rev-ts
+			    (lambda (a b) (< (string-to-number (cdr a)) (string-to-number (cdr b))))))
+       (num-hashes (length sorted-hashes))
+       (colors (mo-git-blame-build-colorscale num-hashes))
+       )
+    (with-selected-window window
+      (with-current-buffer (window-buffer window)
+        (apply-buffer-alist-colors colors)))))
+
+(defun mo-git-blame-colorize-old ()
   (let
       ((table (make-hash-table :test 'equal))
        (window (plist-get mo-git-blame-vars :blame-window)))
@@ -868,6 +916,11 @@ blamed."
         (message "colorize done")))))
 
 ;; TEMP: move
+(defun mo-git-blame-build-colorscale (n)
+  (mo-git-light-colors 0.0 (/ 1.0 (- n 1)))
+  ;;;; TODO: somehow turn attach the colors to the alist mo-git-blame-rev-ts
+  )
+
 (defun mo-git-colors (x delta)
   (if (> x 1.0) ()
     (cons
@@ -888,11 +941,11 @@ blamed."
              )
      (mo-git-light-colors (+ x delta) delta))))
 
-(defun mo-git-blame-test-colors ()
+(defun mo-git-blame-test-colors (n)
   "testing function to show all of the colors"
   (switch-to-buffer "tmp-colors")
   (let
-      ((colors (mo-git-light-colors 0.0 0.1 ;7.8125e-3
+      ((colors (mo-git-light-colors 0.0 (/ 1.0 (- n 1)) ;7.8125e-3
                                     ))
        (table (make-hash-table :test 'equal)))
     (dolist (c colors)
