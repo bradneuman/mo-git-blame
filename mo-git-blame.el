@@ -170,11 +170,31 @@ a b => bbb bba bab baa abb aba aaa aab"
           (setq result (cons (format "#%s%s%s" a b c) result)))))
     result))
 
-(defvar mo-git-blame-light-colors
-  (git-blame-color-scale "c4" "d4" "cc" "dc" "f4" "e4" "fc" "ec")
+(defun mo-git-how-red (color)
+  "Returns an int representing the red intensity minus the blue
+  intensity for the given color string"
+  (let
+      ((r (string-to-number (substring color 1 3) 16))
+       (g (string-to-number (substring color 3 5) 16))
+       (b (string-to-number (substring color 5 7) 16)))
+    (+ (- r b) (/ g 512.0))))
+
+(defun mo-git-sort-blue-to-red (colors)
+  "Given a list of rgb color strings, sort them to smoothly vary from
+  blue to red"
+  (let
+      ((comp (lambda (a b)
+               (< (mo-git-how-red a) (mo-git-how-red b))
+               )))
+    (sort colors comp)))
+
+(defun mo-git-blame-light-colors ()
   "*List of colors (format #RGB) to use in a light environment.
 
-To check out the list, evaluate (list-colors-display git-blame-light-colors).")
+To check out the list, evaluate (list-colors-display git-blame-light-colors)."
+  (mo-git-sort-blue-to-red
+;   ;(mo-git-blame-color-scale "c4" "d4" "cc" "dc" "f4" "e4" "fc" "ec")))
+   (mo-git-blame-color-scale "aa" "bb" "cc" "dd" "ee" "f0")))
 
 (defvar mo-git-blame-colors '())
 
@@ -803,7 +823,7 @@ blamed."
                        (buffer-substring-no-properties (point-at-bol) (point-at-eol))))))
         (if (gethash hash h)
             ()
-          (puthash hash (mo-git-blame-random-pop mo-git-blame-colors)
+          (puthash hash (pop mo-git-blame-colors)
                    h))))))
 
   ;; (dolist
@@ -841,11 +861,37 @@ blamed."
     (with-selected-window window
       (with-current-buffer (window-buffer window)
         (make-local-variable 'mo-git-blame-colors)
-        (setq mo-git-blame-colors mo-git-blame-light-colors)
+        (setq mo-git-blame-colors (mo-git-blame-light-colors))
         (create-buffer-hash-colors table)
         (apply-buffer-hash-colors table)
         (clrhash table)
         (message "colorize done")))))
+
+;; TEMP: move
+(defun mo-git-light-colors (x delta)
+  (if (> x 1.0) ()
+    (cons
+     (format "#%02x%02x%02x"
+             (* 255 (if (< x 0.5) 0 (* (- x 0.5) 2)))
+             (* 255 (if (< x 0.5) (* 2 x) (* 2 (- 1.0 x))))
+             (* 255 (if (> x 0.5) 0 (- 1.0 (* x 2.0))))
+             )
+     (mo-git-light-colors (+ x delta) delta))))
+
+(defun mo-git-blame-test-colors ()
+  "testing function to show all of the colors"
+  (switch-to-buffer "tmp-colors")
+  (let
+      ((colors (mo-git-light-colors 0.0 0.01))
+       (table (make-hash-table :test 'equal)))
+    (dolist (c colors)
+      (prin1 c (current-buffer))
+      (overlay-put
+       (make-overlay (point-at-bol) (point-at-eol))
+       'face
+       (list :background c))
+      (prin1 "\n" (current-buffer))
+      )))
 
 
 ;;;###autoload
